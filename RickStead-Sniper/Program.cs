@@ -4,17 +4,18 @@ using System.Text.Json;
 using System.Net.Http;
 using Newtonsoft.Json;
 using System.Reflection;
+using App;
 
 namespace App
 {
     public class Sniper
     {
-        private readonly string Key = String.Empty;
+        public readonly string Key = String.Empty;
         private readonly int verifyLots;
         private readonly int maxWorkers;
-        private readonly string baseURL = "https://api.hypixel.net/skyblock/auctions?key=";
-        private readonly string requestURL = String.Empty;
         private HttpClient client;
+        public readonly string baseURL = "https://api.hypixel.net/skyblock/auctions?key=";
+        public readonly string requestURL = String.Empty;
 
         public Sniper()
         {
@@ -47,86 +48,93 @@ namespace App
             }
         }
 
-        public async Task<dynamic> GetAuctions()
+        private async Task<ApiResponse> ApiGetResponse(string destinationURL)
         {
             try
             {
-                HttpResponseMessage response = await client.GetAsync(requestURL);
+                HttpResponseMessage response = await client.GetAsync(destinationURL);
 
                 if (response.IsSuccessStatusCode)
                 {
                     string jsonResponse = await response.Content.ReadAsStringAsync();
 
                     // Parse the JSON response
-                    var parsedResponse = JsonConvert.DeserializeObject<dynamic>(jsonResponse);
+                    ApiResponse parsedResponse = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
 
                     // Access the parsed data
-                    bool success = parsedResponse.success;
-                    if (success) {
-                        for (int i = 0; i < parsedResponse.totalPages; i++)
-                        {
+                    if (parsedResponse.success == true)
+                    {
+                        return parsedResponse;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Request denied with status code: " + response.StatusCode);
+                        return null;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Request failed with status code: " + response.StatusCode);
+                    return null;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                // Handle HTTP request errors
+                Console.WriteLine("HTTP request failed: " + ex.Message);
+                return null;
+            }
+        }
 
+        public async Task<ApiResponse> GetAuctionPage(int pageNumber)
+        {
+            return await ApiGetResponse(baseURL+Key+"&page="+pageNumber);
+        }
+
+        public async Task<ApiResponse> GetAllAuctions()
+        {
+            ApiResponse finalResponse = await GetAuctionPage(0);
+
+            for (int i = 1; i <= finalResponse.totalPages; i++)
+            {
+                Console.WriteLine("Getting page " + i);
+                ApiResponse newPage = await GetAuctionPage(i);
+                finalResponse.auctions.AddRange(newPage.auctions);
+            }
+            return finalResponse;
+        }
+
+        public async Task<ApiResponse> GetNewAuctions(int page = 0, int delay = 5000)
+        {
+            ApiResponse data = await GetAuctionPage(page);
+            long previousLastUpdated = data.lastUpdated;
+            List<Auction> NewAuctions = new List<Auction>();
+            int counter = 0;
+
+            while (true)
+            {
+                Console.WriteLine("Waiting for update..");
+                await Task.Delay(delay);
+
+                data = await GetAuctionPage(page);
+                if (data.lastUpdated > previousLastUpdated)
+                { 
+                    foreach (Auction auc in data.auctions)
+                    {
+                        if (auc.start > previousLastUpdated)
+                        {
+                            Console.WriteLine(auc.item_name + ": " + auc.starting_bid + "| BIN:" + auc.bin.ToString() + "\n"
+                                + "Start: " + auc.start + ":" + previousLastUpdated);
+                            counter++;
                         }
                     }
-
-                    // Create an array with the parsed data
-                    string[] data = new string[] { };
-
-                    return data;
+                    Console.WriteLine("New auctions: " + counter);
+                    counter = 0;
+                    previousLastUpdated = data.lastUpdated;
                 }
-                else
-                {
-                    Console.WriteLine("Request failed with status code: " + response.StatusCode);
-                    return null;
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                // Handle HTTP request errors
-                Console.WriteLine("HTTP request failed: " + ex.Message);
-                return null;
             }
         }
-
-        public async Task<dynamic> GetAuctionPage(int pageNumber)
-        {
-
-            try
-            {
-                HttpResponseMessage response = await client.GetAsync(requestURL+"&page="+pageNumber);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    string jsonResponse = await response.Content.ReadAsStringAsync();
-
-                    // Parse the JSON response
-                    var parsedResponse = JsonConvert.DeserializeObject<dynamic>(jsonResponse);
-
-                    // Access the parsed data
-                    bool success = parsedResponse.success;
-                    if (success)
-                    {
-
-                    }
-
-                    // Create an array with the parsed data
-                    string[] data = new string[] { };
-
-                    return data;
-                }
-                else
-                {
-                    Console.WriteLine("Request failed with status code: " + response.StatusCode);
-                    return null;
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                // Handle HTTP request errors
-                Console.WriteLine("HTTP request failed: " + ex.Message);
-                return null;
-            };
-        }
+        
     }
 
     class Program
@@ -134,7 +142,10 @@ namespace App
         static async Task Main()
         {
             Sniper sniper = new Sniper();
-            await sniper.GetAuctions();
+            ApiResponse result = await sniper.GetAllAuctions();
+            Console.WriteLine($"Total auctions: {result.auctions.Count}. Total auctions by API: {result.totalAuctions}. " +
+                $"Total pages: {result.totalPages}");
+            await File.WriteAllTextAsync("output.json", JsonConvert.SerializeObject(result));
         }
     }
 }
