@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Net.Http;
 using Newtonsoft.Json;
 using System.Reflection;
+using System.Linq;
 using App;
 
 namespace App
@@ -15,12 +16,13 @@ namespace App
         private readonly int maxWorkers;
         private HttpClient client;
         private long prevUpdateTime;
+        private readonly bool binOnly = false;
         public readonly string hypixelBaseURL = "https://api.hypixel.net/skyblock/auctions?key=";
         public readonly string coflnetBaseURL = "https://sky.coflnet.com/api/";
         public List<CoflnetItem> itemTagList = new List<CoflnetItem>();
         public ApiResponse responseList;
 
-        public Sniper()
+        public Sniper(bool binOnly)
         {
             try
             {
@@ -37,6 +39,7 @@ namespace App
                 Key = jsonDocument.RootElement.GetProperty("apiKey").ToString();
 ;
                 client = new HttpClient();
+                this.binOnly = binOnly;
             }
             catch (IOException ex)
             {
@@ -98,16 +101,20 @@ namespace App
             // Remove auctionable bazaar items
             items.RemoveAll(obj => obj.flags != null && obj.flags.Contains("BAZAAR"));
 
-            foreach (CoflnetItem item in items)
+            // Set all items with no names to their tag
+            items = items.Select(item =>
             {
-                Console.WriteLine(item.name + " - " + item.tag + " - " + item.flags);
-            }
+                if (item.name == null)
+                {
+                    item.name = item.tag;
+                }
+                return item;
+            }).ToList();
 
             if (itemTagList.Count == 0)
             {
                 itemTagList = items;
             }
-
             return items;
         }
 
@@ -119,7 +126,12 @@ namespace App
         public async Task<ApiResponse> GetAuctionPage(int pageNumber)
         {
             string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
-            return JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
+            ApiResponse result = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
+            if (binOnly)
+            {
+                result.auctions.RemoveAll(obj => obj.bin != true);
+            }
+            return result;
         }
 
         /// <summary>
@@ -140,7 +152,7 @@ namespace App
 
             responseList = finalResponse;
 
-            return finalResponse;
+            return await RefactorItems(finalResponse);
         }
 
         /// <summary>
@@ -166,7 +178,6 @@ namespace App
 
             if (UnixTime() >= prevUpdateTime)
             {
-                //long delta = (prevUpdateTime + 60000 - UnixTime()) < 1000 ? 1000 : prevUpdateTime + 60000 - UnixTime();
                 long delta = (70000 - (UnixTime() - prevUpdateTime)) < 1000 ? 1000 : 70000 - (UnixTime() - prevUpdateTime);
                 Console.WriteLine("Waiting for update for " + ( delta / 1000) + " seconds");
                 await Task.Delay((int)delta);
@@ -187,35 +198,60 @@ namespace App
             {
                 if (auc.start > prevUpdateTime)
                 {
-                    Console.WriteLine("•     " + auc.item_name + ": " + auc.starting_bid + "| BIN:" + auc.bin.ToString());
                     NewAuctions.Add(auc);
-                }
-                else
-                {
-                    Console.WriteLine(auc.uuid);
                 }
             }
             Console.WriteLine("New auctions: " + NewAuctions.Count);
             data.auctions = NewAuctions;
             prevUpdateTime = data.lastUpdated;
 
-            return data;
+            return await RefactorItems(data);
         }
 
+        
+        public async Task<ApiResponse> RefactorItems(ApiResponse input)
+        {
+
+            Parallel.ForEach(itemTagList, item =>
+            {
+                foreach (Auction auction in input.auctions)
+                {
+                    if (auction.item_name.Contains(item.name))
+                    {
+                        auction.item_name = item.tag;
+                    }
+                }
+            });
+            return input;
+        }
+        
     }
 
     class Program
     {
         static async Task Main()
         {
-            Sniper sniper = new Sniper();
-            //ApiResponse allAuctions = await sniper.GetAllAuctions();
-            //Console.WriteLine($"Total auctions: {allAuctions.auctions.Count}. Total auctions by API: {allAuctions.totalAuctions}. " +
-            //    $"Total pages: {allAuctions.totalPages}");
-
-            //ApiResponse newAuctions = await sniper.GetNewAuctions();
-            //allAuctions.auctions.AddRange(newAuctions.auctions);
+            Sniper sniper = new Sniper(true);
             List<CoflnetItem> items = await sniper.GetItemNametags();
+            ApiResponse allAuctions = await sniper.GetAllAuctions();
+            ApiResponse newAuctions = await sniper.GetNewAuctions();
+            allAuctions.auctions.AddRange(newAuctions.auctions);
+
+            newAuctions.auctions = newAuctions.auctions.Distinct().ToList();
+            foreach (Auction auction in newAuctions.auctions)
+            {
+                List<Auction> priceRange = allAuctions.auctions.Where(obj => obj.item_name == auction.item_name).ToList();
+                List<long> prices = priceRange.Select(item => item.starting_bid).Distinct().ToList();
+                prices.Sort();
+                if (prices.Count > 1)
+                {
+                    Console.WriteLine($"{priceRange.First().item_name}. Lowest BIN: {prices.First()}. Second lowest BIN: {prices.Skip(1).Take(1).First()}");
+                }
+                else
+                {
+                    Console.WriteLine($"{priceRange.First().item_name}. Lowest BIN: {prices.First()}. This is only item on the market");
+                }
+            }
         }
     }
 }

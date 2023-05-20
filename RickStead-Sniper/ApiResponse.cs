@@ -25,18 +25,18 @@ namespace App
         public long start { get; set; }
         public long end { get; set; }
         public string item_name { get; set; }
-        //public string item_lore { get; set; }
+        public string item_lore { get; set; }
         //public string extra { get; set; }
-        //public string category { get; set; }
-        //public string tier { get; set; }
+        public string category { get; set; }
+        public string tier { get; set; }
         public long starting_bid { get; set; }
         //public string item_bytes { get; set; }
-        public bool claimed { get; set; }
+        //public bool claimed { get; set; }
         //public List<dynamic>? claimed_bidders { get; set; }
         //public long highest_bid_amount { get; set; }
         public long last_updated { get; set; }
         public bool bin { get; set; }
-        //public List<Bid> bids { get; set; }
+        public List<Bid> bids { get; set; }
     }
 
     public class CoflnetItem
