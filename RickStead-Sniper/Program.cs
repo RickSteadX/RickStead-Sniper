@@ -7,14 +7,19 @@ using System.Reflection;
 using System.Linq;
 using App;
 
+#pragma warning disable CS8600 // Suppressing "possible null reference" warnings
+#pragma warning disable CS8602 
+#pragma warning disable CS8603 
+#pragma warning disable CS8604 
+#pragma warning disable CS8618 
+
 namespace App
 {
     public class Sniper
     {
         public readonly string Key = String.Empty;
-        private readonly int verifyLots;
-        private readonly int maxWorkers;
         private HttpClient client;
+        private long currentUpdateTime;
         private long prevUpdateTime;
         private readonly bool binOnly = false;
         public readonly string hypixelBaseURL = "https://api.hypixel.net/skyblock/auctions?key=";
@@ -22,24 +27,19 @@ namespace App
         public List<CoflnetItem> itemTagList = new List<CoflnetItem>();
         public ApiResponse responseList;
 
-        public Sniper(bool binOnly)
+        public Sniper(bool binOnly = true)
         {
             try
             {
-                string configPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..\\..\\..\\")) + "config.json";
                 string keysPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..\\..\\..\\")) + "keys.json";
 
-                string jsonString = File.ReadAllText(configPath);
+                string jsonString = File.ReadAllText(keysPath);
                 JsonDocument jsonDocument = JsonDocument.Parse(jsonString);
-                verifyLots = jsonDocument.RootElement.GetProperty("lotVerifyQuantity").GetInt32();
-                maxWorkers = jsonDocument.RootElement.GetProperty("maxWorkers").GetInt32();
-
-                jsonString = File.ReadAllText(keysPath);
-                jsonDocument = JsonDocument.Parse(jsonString);
                 Key = jsonDocument.RootElement.GetProperty("apiKey").ToString();
 ;
                 client = new HttpClient();
                 this.binOnly = binOnly;
+                GetItemNametags();
             }
             catch (IOException ex)
             {
@@ -87,8 +87,13 @@ namespace App
         /// Gets ITEM_TAGs and misc data for further use
         /// </summary>
         /// <returns>List<ColfnetItem></returns>
-        public async Task<List<CoflnetItem>> GetItemNametags()
+        public async void GetItemNametags()
         {
+            if (itemTagList.Count != 0)
+            {
+                return;
+            }
+
             string jsonResponse = await ApiGetResponse(coflnetBaseURL+"items");
             List<CoflnetItem> items = JsonConvert.DeserializeObject<List<CoflnetItem>>(jsonResponse);
 
@@ -110,49 +115,52 @@ namespace App
                 }
                 return item;
             }).ToList();
-
-            if (itemTagList.Count == 0)
-            {
-                itemTagList = items;
-            }
-            return items;
         }
 
         /// <summary>
         /// Gets a single page from Hypixel API.
         /// </summary>
         /// <param name="pageNumber">Specified page</param>
-        /// <returns>ApiResponse class with List<Auction> of one page</returns>
-        public async Task<ApiResponse> GetAuctionPage(int pageNumber)
+        /// <returns>ApiResponse class with Auctions of one page</returns>
+        public async Task<Auctions> GetAuctionPage(int pageNumber)
         {
             string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
             ApiResponse result = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
+
+            if (currentUpdateTime == 0)
+            {
+                currentUpdateTime = result.lastUpdated;
+            }
+            else if (currentUpdateTime != 0 && prevUpdateTime != 0 && currentUpdateTime != prevUpdateTime)
+            {
+                prevUpdateTime = currentUpdateTime;
+                currentUpdateTime = result.lastUpdated;
+            }
+
             if (binOnly)
             {
                 result.auctions.RemoveAll(obj => obj.bin != true);
             }
-            return result;
+            return result.auctions;
         }
 
         /// <summary>
         /// Gets auctions from all pages available (might differ from API amount of auctions).
         /// </summary>
-        /// <returns>ApiResponse class with List<Auction> of all pages</returns>
-        public async Task<ApiResponse> GetAllAuctions()
+        /// <returns>ApiResponse class with Auctions of all pages</returns>
+        public async Task<Auctions> GetAllAuctions()
         {
-            ApiResponse finalResponse = await GetAuctionPage(0);
-            prevUpdateTime = finalResponse.lastUpdated;
+            Auctions finalResponse = await GetAuctionPage(0);
 
-            for (int i = 1; i < finalResponse.totalPages; i++)
+            //for (int i = 1; i < finalResponse.totalPages; i++)
+            for (int i = 1; i < 5; i++)
             {
                 Console.WriteLine("Getting page " + i);
-                ApiResponse newPage = await GetAuctionPage(i);
-                finalResponse.auctions.AddRange(newPage.auctions);
+                Auctions newPage = await GetAuctionPage(i);
+                finalResponse.AddRange(newPage);
             }
 
-            responseList = finalResponse;
-
-            return await RefactorItems(finalResponse);
+            return finalResponse;
         }
 
         /// <summary>
@@ -160,20 +168,18 @@ namespace App
         /// </summary>
         /// <param name="page">(optional) unused</param>
         /// <param name="furtherProcessing">(optional) unused</param>
-        /// <returns>ApiResponse class with List<Auction> of first page filtered by start time</returns>
-        public async Task<ApiResponse> GetNewAuctions(int page = 0, ApiResponse furtherProcessing = null)
+        /// <returns>ApiResponse class with Auctions of first page filtered by start time</returns>
+        public async Task<Auctions> GetNewAuctions(int page = 0, Auctions? furtherProcessing = null)
         {
 
-            List<Auction> NewAuctions = new List<Auction>();
+            Auctions NewAuctions = new Auctions();
 
-            ApiResponse data;
+            Auctions data;
 
             if (prevUpdateTime == 0)
             {
                 //Create new timestamp
                 data = await GetAuctionPage(page);
-                prevUpdateTime = data.lastUpdated;
-
             }
 
             if (UnixTime() >= prevUpdateTime)
@@ -190,11 +196,11 @@ namespace App
             else
             {
                 data = furtherProcessing;
-                ApiResponse newdata = await GetAuctionPage(page+1);
-                data.auctions.AddRange(newdata.auctions);
+                Auctions newdata = await GetAuctionPage(page+1);
+                data.AddRange(newdata);
             }
 
-            foreach (Auction auc in data.auctions)
+            foreach (Auction auc in data)
             {
                 if (auc.start > prevUpdateTime)
                 {
@@ -202,56 +208,40 @@ namespace App
                 }
             }
             Console.WriteLine("New auctions: " + NewAuctions.Count);
-            data.auctions = NewAuctions;
-            prevUpdateTime = data.lastUpdated;
+            data = NewAuctions;
 
-            return await RefactorItems(data);
+            return data;
         }
-
-        
-        public async Task<ApiResponse> RefactorItems(ApiResponse input)
-        {
-
-            Parallel.ForEach(itemTagList, item =>
-            {
-                foreach (Auction auction in input.auctions)
-                {
-                    if (auction.item_name.Contains(item.name))
-                    {
-                        auction.item_name = item.tag;
-                    }
-                }
-            });
-            return input;
-        }
-        
+   
     }
 
     class Program
     {
         static async Task Main()
         {
-            Sniper sniper = new Sniper(true);
-            List<CoflnetItem> items = await sniper.GetItemNametags();
-            ApiResponse allAuctions = await sniper.GetAllAuctions();
-            ApiResponse newAuctions = await sniper.GetNewAuctions();
-            allAuctions.auctions.AddRange(newAuctions.auctions);
+            Sniper sniper = new Sniper();
+            Auctions allAuctions = await sniper.GetAllAuctions();
+            Auctions newAuctions = await sniper.GetNewAuctions();
+            allAuctions.AddRange(newAuctions);
 
-            newAuctions.auctions = newAuctions.auctions.Distinct().ToList();
-            foreach (Auction auction in newAuctions.auctions)
+            //Console.WriteLine(RomanNumerals.ToInteger("III"));
+
+            
+            //newAuctions = (Auctions)newAuctions.Distinct().ToList();
+            foreach (Auction auction in newAuctions)
             {
-                List<Auction> priceRange = allAuctions.auctions.Where(obj => obj.item_name == auction.item_name).ToList();
-                List<long> prices = priceRange.Select(item => item.starting_bid).Distinct().ToList();
-                prices.Sort();
-                if (prices.Count > 1)
+                List<Item> newAuctionsItems = newAuctions.ConvertToItems();
+                foreach (Item item in newAuctionsItems)
                 {
-                    Console.WriteLine($"{priceRange.First().item_name}. Lowest BIN: {prices.First()}. Second lowest BIN: {prices.Skip(1).Take(1).First()}");
+                    Console.WriteLine(item.name);
+                    Console.WriteLine("BIN: " + item.price);
                 }
-                else
-                {
-                    Console.WriteLine($"{priceRange.First().item_name}. Lowest BIN: {prices.First()}. This is only item on the market");
-                }
+                //Auctions priceRange = allAuctions.auctions.Where(obj => obj.item_name == auction.item_name).ToList();
+                //List<long> prices = priceRange.Select(item => item.starting_bid).Distinct().ToList();
+                //prices.Sort();
+
             }
+            
         }
     }
 }

@@ -4,6 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+#pragma warning disable CS8600 // Suppressing "possible null reference" warnings
+#pragma warning disable CS8602 
+#pragma warning disable CS8603 
+#pragma warning disable CS8604 
+#pragma warning disable CS8618 
+
 namespace App
 {
     public class ApiResponse
@@ -13,12 +19,35 @@ namespace App
         public int totalPages { get; set; }
         public int totalAuctions { get; set; }
         public long lastUpdated { get; set; }
-        public List<Auction> auctions { get; set; }
+        public Auctions auctions { get; set; }
+
+        public Auctions ToAuctions()
+        {
+            Auctions result = (Auctions)this.auctions;
+            return result;
+        }
+    } 
+
+    public class Auctions: List<Auction>
+    {
+        public void RefactorItems(List<CoflnetItem> tagList)
+        {
+            Parallel.ForEach(tagList, item =>
+            {
+                foreach (Auction auction in this)
+                {
+                    if (auction.item_name.Contains(item.name))
+                    {
+                        auction.item_name = item.tag;
+                    }
+                }
+            });
+        }
 
         public List<Item> ConvertToItems()
         {
             List<Item> items = new List<Item>();
-            foreach (Auction auction in auctions)
+            foreach (Auction auction in this)
             {
                 items.Add(auction.ConvertToItem());
             }
@@ -51,19 +80,20 @@ namespace App
         public Dictionary<string, int> ParseEnchants(string loreInput)
         {
             Dictionary<string, int> enchants = new Dictionary<string, int>();
-            foreach (var line in loreInput.Split('\n'))
+            // Create a list to store the enchants
+            //List<Enchant> enchants = new List<Enchant>();
+
+            // Iterate over the item lore string
+            foreach (string line in loreInput.Split('\n'))
             {
-                // If the line starts with "§9", then it is an enchant.
+                // Check if the line starts with "§9"
                 if (line.StartsWith("§9"))
                 {
-                    // Get the roman number from the line.
-                    string romanNumber = line.Substring(2);
 
-                    // Convert the roman number to an integer.
-                    int number = RomanNumerals.ToInteger(romanNumber);
+                }
+                else if (line.StartsWith("§d§l")) 
+                {
 
-                    // Add the text and roman number to the dictionary.
-                    enchants.Add(line.Substring(0, 2), number);
                 }
             }
             return enchants;
@@ -72,7 +102,7 @@ namespace App
         public Item ConvertToItem()
         {
             return new Item(item_name, 
-                            ParseEnchants(item_lore), 
+                            //ParseEnchants(item_lore), 
                             starting_bid,
                             (Tier)Enum.Parse(typeof(Tier), tier)
                             );
@@ -89,14 +119,16 @@ namespace App
     public class Item
     {
         public string name;
-        public Dictionary<string, int> enchants;
+        //public Dictionary<string, int> enchants;
         public long price;
         public Tier tier;
 
-        public Item(string name, Dictionary<string, int> enchants, long price, Tier tier)
+        public Item(string name, 
+            //Dictionary<string, int> enchants, 
+            long price, Tier tier)
         {
             this.name = name;
-            this.enchants = enchants;
+            //this.enchants = enchants;
             this.price = price;
             this.tier = tier;
         }
