@@ -36,7 +36,7 @@ namespace App
                 string jsonString = File.ReadAllText(keysPath);
                 JsonDocument jsonDocument = JsonDocument.Parse(jsonString);
                 Key = jsonDocument.RootElement.GetProperty("apiKey").ToString();
-;
+                ;
                 client = new HttpClient();
                 this.binOnly = binOnly;
                 GetItemNametags();
@@ -94,7 +94,7 @@ namespace App
                 return;
             }
 
-            string jsonResponse = await ApiGetResponse(coflnetBaseURL+"items");
+            string jsonResponse = await ApiGetResponse(coflnetBaseURL + "items");
             List<CoflnetItem> items = JsonConvert.DeserializeObject<List<CoflnetItem>>(jsonResponse);
 
             // Remove all nulls
@@ -115,6 +115,8 @@ namespace App
                 }
                 return item;
             }).ToList();
+
+            itemTagList = items;
         }
 
         /// <summary>
@@ -126,7 +128,7 @@ namespace App
         {
             string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
             ApiResponse result = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
-
+            responseList = result;
             if (currentUpdateTime == 0)
             {
                 currentUpdateTime = result.lastUpdated;
@@ -152,8 +154,8 @@ namespace App
         {
             Auctions finalResponse = await GetAuctionPage(0);
 
-            //for (int i = 1; i < finalResponse.totalPages; i++)
-            for (int i = 1; i < 5; i++)
+            for (int i = 1; i < responseList.totalPages; i++)
+            //for (int i = 1; i < 5; i++)
             {
                 Console.WriteLine("Getting page " + i);
                 Auctions newPage = await GetAuctionPage(i);
@@ -185,7 +187,7 @@ namespace App
             if (UnixTime() >= prevUpdateTime)
             {
                 long delta = (70000 - (UnixTime() - prevUpdateTime)) < 1000 ? 1000 : 70000 - (UnixTime() - prevUpdateTime);
-                Console.WriteLine("Waiting for update for " + ( delta / 1000) + " seconds");
+                Console.WriteLine("Waiting for update for " + (delta / 1000) + " seconds");
                 await Task.Delay((int)delta);
             }
 
@@ -196,7 +198,7 @@ namespace App
             else
             {
                 data = furtherProcessing;
-                Auctions newdata = await GetAuctionPage(page+1);
+                Auctions newdata = await GetAuctionPage(page + 1);
                 data.AddRange(newdata);
             }
 
@@ -212,7 +214,7 @@ namespace App
 
             return data;
         }
-   
+
     }
 
     class Program
@@ -221,27 +223,35 @@ namespace App
         {
             Sniper sniper = new Sniper();
             Auctions allAuctions = await sniper.GetAllAuctions();
+            allAuctions.RefactorItems(sniper.itemTagList);
             Auctions newAuctions = await sniper.GetNewAuctions();
+            newAuctions.RefactorItems(sniper.itemTagList);
             allAuctions.AddRange(newAuctions);
 
-            //Console.WriteLine(RomanNumerals.ToInteger("III"));
-
-            
-            //newAuctions = (Auctions)newAuctions.Distinct().ToList();
-            foreach (Auction auction in newAuctions)
+            var distinctNames = newAuctions.Select(auction => auction.item_name).Distinct().ToList();
+            distinctNames = distinctNames.Where(auction => !auction.Contains("[Lvl")).ToList();
+            foreach (var distinctName in distinctNames)
             {
-                List<Item> newAuctionsItems = newAuctions.ConvertToItems();
-                foreach (Item item in newAuctionsItems)
-                {
-                    Console.WriteLine(item.name);
-                    Console.WriteLine("BIN: " + item.price);
-                }
-                //Auctions priceRange = allAuctions.auctions.Where(obj => obj.item_name == auction.item_name).ToList();
-                //List<long> prices = priceRange.Select(item => item.starting_bid).Distinct().ToList();
-                //prices.Sort();
+                List<Auction> itemSet = allAuctions.Where(auction => auction.item_name.Contains(distinctName)).ToList();
+                itemSet.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
+                List<Auction> itemSetSorted = itemSet;
 
+                
+                if (itemSetSorted.Count > 1)
+                {
+                    //Auction next = itemSetSorted.Skip(1).FirstOrDefault(item => item.starting_bid != itemSetSorted[0].starting_bid);
+                    Auction next = itemSetSorted.Skip(1).Where(item => item != itemSetSorted[0]).FirstOrDefault();
+                    long lowest = itemSetSorted[0].starting_bid;
+                    long nextLowest = next.starting_bid;
+                    if (lowest < nextLowest)
+                    {
+                        double profitPercent = (((double)nextLowest - (double)lowest) / (double)lowest) * 100;
+                        long profit = nextLowest - lowest;
+                        Console.WriteLine($"{next.item_name}: profit - {profit}({profitPercent}%)");
+                    }
+                }
             }
-            
+
         }
     }
 }

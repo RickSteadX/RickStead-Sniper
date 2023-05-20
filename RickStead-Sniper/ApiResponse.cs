@@ -53,6 +53,11 @@ namespace App
             }
             return items;
         }
+
+        public void SortByStartingBid()
+        {
+            this.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
+        }
     }
 
     public class Auction
