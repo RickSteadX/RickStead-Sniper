@@ -67,8 +67,7 @@ namespace App
 
                 if (response.IsSuccessStatusCode)
                 {
-                    string jsonResponse = await response.Content.ReadAsStringAsync();
-                    return jsonResponse;
+                    return await response.Content.ReadAsStringAsync();
                 }
                 else
                 {
@@ -84,55 +83,7 @@ namespace App
             }
         }
 
-        /// <summary>
-        /// Gets ITEM_TAGs and misc data for further use
-        /// </summary>
-        /// <returns>List<ColfnetItem></returns>
-        public async void GetItemNametags()
-        {
-            if (itemTagList.Count != 0)
-            {
-                return;
-            }
-
-            string jsonResponse = await ApiGetResponse(coflnetBaseURL + "items");
-            List<CoflnetItem> items = JsonConvert.DeserializeObject<List<CoflnetItem>>(jsonResponse);
-
-            // Remove all nulls
-            items.RemoveAll(obj => obj.name != null && obj.name.Contains("null"));
-
-            // Remove all that cannot be auctioned
-            items.RemoveAll(obj => obj.flags != null && !obj.flags.Contains("AUCTION"));
-
-            // Remove auctionable bazaar items
-            items.RemoveAll(obj => obj.flags != null && obj.flags.Contains("BAZAAR"));
-
-            // Set all items with no names to their tag
-            items = items.Select(item =>
-            {
-                if (item.name == null)
-                {
-                    item.name = item.tag;
-                }
-                return item;
-            }).ToList();
-
-            itemTagList = items;
-        }
-
-        public async Task<long> GetItemAverageMin (string itemName)
-        {
-            string jsonResponse = await ApiGetResponse(coflnetBaseURL + $"item/price/{itemName}/history/day");
-            List<CoflnetPrice> items = JsonConvert.DeserializeObject<List<CoflnetPrice>>(jsonResponse);
-            List<long> minPrices = items.Select(item => item.min).ToList();
-            return (long)minPrices.Average();
-        }
-
-        /// <summary>
-        /// Gets a single page from Hypixel API.
-        /// </summary>
-        /// <param name="pageNumber">Specified page</param>
-        /// <returns>ApiResponse class with Auctions of one page</returns>
+        /*
         public async Task<Auctions> GetAuctionPage(int pageNumber)
         {
             string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
@@ -157,11 +108,7 @@ namespace App
             Auctions final = result.ToAuctions();
             return final;
         }
-
-        /// <summary>
-        /// Gets auctions from all pages available (might differ from API amount of auctions).
-        /// </summary>
-        /// <returns>ApiResponse class with Auctions of all pages</returns>
+        
         public async Task<Auctions> GetAllAuctions()
         {
             Auctions finalResponse = await GetAuctionPage(0);
@@ -176,13 +123,8 @@ namespace App
 
             return finalResponse;
         }
+        
 
-        /// <summary>
-        /// Gets list of auction that were posted after previous update.
-        /// </summary>
-        /// <param name="page">(optional) unused</param>
-        /// <param name="furtherProcessing">(optional) unused</param>
-        /// <returns>ApiResponse class with Auctions of first page filtered by start time</returns>
         public async Task<Auctions> GetNewAuctions(int page = 0, Auctions? furtherProcessing = null)
         {
 
@@ -222,103 +164,15 @@ namespace App
             return data;
         }
 
+        */
+
     }
 
     class Program
     {
         static async Task Main()
         {
-            Sniper sniper = new Sniper();
-            Auctions allAuctions = await sniper.GetAllAuctions();
-            allAuctions.RefactorItems(sniper.itemTagList);
-            JsonSerializerOptions json = new JsonSerializerOptions() { WriteIndented = true};
-
-            while (true)
-            {
-                Auctions newAuctions = await sniper.GetNewAuctions();
-                newAuctions.RefactorItems(sniper.itemTagList);
-                allAuctions.Get().AddRange(newAuctions.Get());
-
-                var distinctNames = newAuctions.Get().Select(auction => auction.item_name).Distinct().ToList();
-                distinctNames = distinctNames.Where(auction => !auction.Contains("[Lvl")).ToList();
-
-                double minProfit = 10;
-                double minMargin = 500000;
-
-                foreach (var distinctName in distinctNames)
-                {
-                    List<Auction> itemSet = allAuctions.Get().Where(auction => auction.item_name.Contains(distinctName)).ToList();
-                    //Auctions itemSet = (Auctions)itemSett;
-                    itemSet.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
-                    List<Auction> itemSetSorted = itemSet;
-
-                    if (itemSetSorted.Count < 3)
-                    {
-                        continue;
-                    }
-
-                    if (itemSetSorted[0].category == "misc")
-                    {
-                        continue;
-                    }
-
-                    //Auction next = itemSetSorted.Skip(1).FirstOrDefault(item => item.starting_bid != itemSetSorted[0].starting_bid);
-                    Auction next = itemSetSorted.Skip(1).Where(item => item != itemSetSorted[0]).FirstOrDefault();
-                    long lowest = itemSetSorted[0].starting_bid;
-                    long nextLowest = next.starting_bid;
-
-                    if (lowest >= nextLowest)
-                    {
-                        continue;
-                    }
-
-                    var toJson = new
-                    {
-                        item = next.item_name,
-                        data = itemSetSorted.Select(auction => (auction.starting_bid, auction.uuid)).ToList()
-                    };
-
-                    double profitPercent = (((double)nextLowest - (double)lowest) / (double)lowest) * 100;
-                    long profit = nextLowest - lowest;
-                    if (profitPercent > minProfit && profit > minMargin && profitPercent < 100)
-                    {
-                        //long dayAverage = await sniper.GetItemAverageMin(itemSetSorted[0].item_name);
-                        Console.WriteLine($"{next.item_name}: profit - {profit}({profitPercent.ToString("#.##")}%) {itemSetSorted[0].uuid}\n" +
-                            $"Compared to {next.uuid}. Item day average: {dayAverage}");
-                        ClipboardService.SetText($"/viewauction {itemSetSorted[0].uuid}");
-                        File.WriteAllText($"data/{next.item_name}.json", JsonConvert.SerializeObject(toJson));
-                    }
-
-                }
-
-            }
-            /*
-            var distinctNames = newAuctions.Get().Select(auction => auction.item_name).Distinct().ToList();
-            distinctNames = distinctNames.Where(auction => !auction.Contains("[Lvl")).ToList();
-            foreach (var distinctName in distinctNames)
-            {
-                List<Auction> itemSet = allAuctions.Get().Where(auction => auction.item_name.Contains(distinctName)).ToList();
-                //Auctions itemSet = (Auctions)itemSett;
-                itemSet.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
-                List<Auction> itemSetSorted = itemSet;
-
-
-                if (itemSetSorted.Count > 1)
-                {
-                    //Auction next = itemSetSorted.Skip(1).FirstOrDefault(item => item.starting_bid != itemSetSorted[0].starting_bid);
-                    Auction next = itemSetSorted.Skip(1).Where(item => item != itemSetSorted[0]).FirstOrDefault();
-                    long lowest = itemSetSorted[0].starting_bid;
-                    long nextLowest = next.starting_bid;
-                    if (lowest < nextLowest)
-                    {
-                        double profitPercent = (((double)nextLowest - (double)lowest) / (double)lowest) * 100;
-                        long profit = nextLowest - lowest;
-                        Console.WriteLine($"{next.item_name}: profit - {profit}({profitPercent}%)");
-                    }
-                }
-            }
-            */
-
+            Console.WriteLine("Sniper");
         }
     }
 }

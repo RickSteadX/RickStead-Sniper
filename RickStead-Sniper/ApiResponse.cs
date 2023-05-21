@@ -29,47 +29,6 @@ namespace App
         }
     } 
 
-    public class Auctions
-    {
-        public List<Auction> auctions = new List<Auction>();
-
-        public List<Auction> Get()
-        {
-            return this.auctions;
-        }
-
-        public void RefactorItems(List<CoflnetItem> tagList)
-        {
-            auctions.RemoveAll(obj => obj.item_name.Contains("✪") && obj.item_name.Contains("✪✪✪✪✪"));
-
-            Parallel.ForEach(tagList, item =>
-            {
-                foreach (Auction auction in this.auctions)
-                {
-                    if (auction.item_name.Contains(item.name))
-                    {
-                        auction.item_name = item.tag;
-                    }
-                }
-            });
-        }
-
-        public List<Item> ConvertToItems()
-        {
-            List<Item> items = new List<Item>();
-            foreach (Auction auction in this.auctions)
-            {
-                items.Add(auction.ConvertToItem());
-            }
-            return items;
-        }
-
-        public void SortByStartingBid()
-        {
-            auctions.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
-        }
-    }
-
     public class Auction
     {
         public string uuid { get; set; }
@@ -131,52 +90,6 @@ namespace App
         public string flags { get; set; }
     }
 
-    public class CoflnetPrice
-    {
-        public long min;
-        public long max;
-        public long avg;
-        public long unixTime;
-        public int volume;
-        public string time;
-
-        public long timeToUnix()
-        {
-            DateTime dateTime = DateTime.Parse(time);
-            DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
-            long unixTime = (long)(dateTime.ToUniversalTime() - unixEpoch).TotalSeconds;
-            return unixTime;
-        }
-    }
-
-    public class Item
-    {
-        public string name;
-        //public Dictionary<string, int> enchants;
-        public long price;
-        public Tier tier;
-
-        public Item(string name, 
-            //Dictionary<string, int> enchants, 
-            long price, Tier tier)
-        {
-            this.name = name;
-            //this.enchants = enchants;
-            this.price = price;
-            this.tier = tier;
-        }
-    }
-
-    public class Bid
-    {
-        public string auction_id { get; set; }
-        public string bidder { get; set; }
-        public string profile_id { get; set; }
-        public long amount { get; set; }
-        public long timestamp { get; set; }
-    }
-
     public enum Tier
     {
         COMMON = 1,
@@ -188,38 +101,4 @@ namespace App
         SPECIAL = 7
     }
 
-    public class RomanNumerals
-    {
-        private static readonly Dictionary<char, int> romanNumeralValues = new Dictionary<char, int>
-    {
-        { 'I', 1 },
-        { 'V', 5 },
-        { 'X', 10 },
-        { 'L', 50 },
-        { 'C', 100 },
-        { 'D', 500 },
-        { 'M', 1000 }
-    };
-
-        public static int ToInteger(string romanNumeral)
-        {
-            int result = 0;
-            int currentValue = 0;
-
-            foreach (char c in romanNumeral)
-            {
-                int value = romanNumeralValues[c];
-
-                if (value > currentValue)
-                {
-                    result -= currentValue;
-                }
-
-                result += value;
-                currentValue = value;
-            }
-
-            return result;
-        }
-    }
 }
