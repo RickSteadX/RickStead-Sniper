@@ -192,7 +192,7 @@ namespace App
             long delta;
 
             // Wait for next update
-            delta = (65000 - (UnixTime() - currentUpdateTime)) < 1000 ? 1000 : 65000 - (UnixTime() - currentUpdateTime);
+            delta = (65000 - (UnixTime() - currentUpdateTime)) < 1000 ? 100 : 65000 - (UnixTime() - currentUpdateTime);
 
 
             Console.WriteLine("Waiting for update for " + (delta / 1000) + " seconds");
@@ -282,7 +282,7 @@ namespace App
                     long profit = nextLowest - lowest;
                     if (profitPercent > minProfit && profit > minMargin && profitPercent < 100)
                     {
-                        long dayAverage = await sniper.GetItemAverageMin(itemSetSorted[0].item_name);
+                        //long dayAverage = await sniper.GetItemAverageMin(itemSetSorted[0].item_name);
                         Console.WriteLine($"{next.item_name}: profit - {profit}({profitPercent.ToString("#.##")}%) {itemSetSorted[0].uuid}\n" +
                             $"Compared to {next.uuid}. Item day average: {dayAverage}");
                         ClipboardService.SetText($"/viewauction {itemSetSorted[0].uuid}");
