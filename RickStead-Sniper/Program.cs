@@ -18,29 +18,27 @@ namespace App
 {
     public class Sniper
     {
-        public readonly string Key = String.Empty;
-        private HttpClient client;
-        private long currentUpdateTime;
-        private long prevUpdateTime;
-        private readonly bool binOnly = false;
-        public readonly string hypixelBaseURL = "https://api.hypixel.net/skyblock/auctions?key=";
-        public readonly string coflnetBaseURL = "https://sky.coflnet.com/api/";
-        public List<CoflnetItem> itemTagList = new List<CoflnetItem>();
-        public ApiResponse lastResponse;
+        public readonly int MAX_LIST_ELEMENTS = 75000;
+        public readonly int MIN_PROFIT_PERCENT = 20;
+        public readonly int MIN_PROFIT_MARGIN = 1000000;
 
-        public Sniper(bool binOnly = true)
+        private HttpClient client;
+        private ApiResponseShort lastResponse;
+        private readonly string hypixelBaseURL = "https://api.hypixel.net/skyblock/auctions?key=";
+        private readonly string coflnetBaseURL = "https://sky.coflnet.com/api/";
+        public List<CoflnetItem> itemTagList = new List<CoflnetItem>();
+
+        public Sniper()
         {
             try
             {
                 string keysPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..\\..\\..\\")) + "keys.json";
-
                 string jsonString = File.ReadAllText(keysPath);
                 JsonDocument jsonDocument = JsonDocument.Parse(jsonString);
-                Key = jsonDocument.RootElement.GetProperty("apiKey").ToString();
-                ;
+                string Key = jsonDocument.RootElement.GetProperty("apiKey").ToString();
+                hypixelBaseURL += Key;
+
                 client = new HttpClient();
-                this.binOnly = binOnly;
-                GetItemNametags();
             }
             catch (IOException ex)
             {
@@ -83,48 +81,36 @@ namespace App
             }
         }
 
-        /*
-        public async Task<Auctions> GetAuctionPage(int pageNumber)
+
+        public async Task<List<Auction>> GetAuctionPage(int pageNumber)
         {
-            string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
+            string jsonResponse = await ApiGetResponse(hypixelBaseURL + "&page=" + pageNumber);
             ApiResponse result = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
-            lastResponse = result;
 
-            if (result.lastUpdated != currentUpdateTime)
-            {
-                prevUpdateTime = currentUpdateTime;
-                currentUpdateTime = result.lastUpdated;
-            }
+            result.auctionList.RemoveAll(obj => obj.bin != true);
 
-            if (prevUpdateTime == currentUpdateTime)
-            {
-                prevUpdateTime = 0;
-            }
+            lastResponse = result.ToApiResponseShort();
 
-            if (binOnly)
-            {
-                result.auctions.RemoveAll(obj => obj.bin != true);
-            }
-            Auctions final = result.ToAuctions();
-            return final;
+            return result.auctionList;
         }
-        
-        public async Task<Auctions> GetAllAuctions()
+
+        public async Task<List<Auction>> GetAllAuctions()
         {
-            Auctions finalResponse = await GetAuctionPage(0);
+            List<Auction> finalResponse = await GetAuctionPage(0);
 
             for (int i = 1; i < lastResponse.totalPages; i++)
             //for (int i = 1; i < 5; i++)
             {
+                Console.Clear();
                 Console.WriteLine("Getting page " + i);
-                Auctions newPage = await GetAuctionPage(i);
-                finalResponse.Get().AddRange(newPage.Get());
+                List<Auction> newPage = await GetAuctionPage(i);
+                finalResponse.AddRange(newPage);
             }
 
             return finalResponse;
         }
-        
 
+        /*
         public async Task<Auctions> GetNewAuctions(int page = 0, Auctions? furtherProcessing = null)
         {
 
@@ -172,7 +158,12 @@ namespace App
     {
         static async Task Main()
         {
-            Console.WriteLine("Sniper");
+            Sniper sniper = new();
+            //List<Auction> auctions = await sniper.GetAuctionPage(0);
+            //List<Auction> auctionSlice = auctions.GetRange(0, 100);
+            //Console.WriteLine(auctionSlice.Count);
+            Functional a = new();
+            a.DecodeNBT("H4sIAAAAAAAAAF1T3W7bNhj9FDet4xXI7othRNaiMdwosvwn586zXadA5gRR2mIoioCWvthEJdIQ6WW53DvsYggwYHd+Dz9KHmToR0lJfwTL4s85h4eHH2sAO+CIGgA4W7AlYqfhwPZQraRxalAxfO7AD2/lLEP+ic8SdCqwcyxifJ3wuSbS/zV4Egu9TPjNDjw6URlWafQZ/LxZ9ybIMxZGNHbENuu41wnoE+w3ux2vDvsECE2Gcm4WdjpqdDr06e83/E49xzWafttt1aFByGEmDBsuuIywADf9FwWaGg/wF3U4vAePeMrnJbjdK8H+F7DXdW0PXhLhGHlSuOCNVssvsL0S2et4bssvDI/wCqXGAtls9b5Ftry+2yXkM7u1JWJc4IJyxcD1gmI3b6TBJBFzLLfDG75XGvRKrXbHJaVd2/lA793t3/T/kaKlYPuTTF2bBXtHzVeWd5Ypg5ERSrJ3BNnbrLuvV0nCQjTsVyVX+oiFCx6razbQmmstJPxkc1JJQjRmFsh0Pq+ZurJd+IWmUWIqULMbtWKfBMkJGVEZEHtux7JcI85jZlcqy2Uy1OZeY89Or+Qcydb1QiTIrqkgLNsshGYajZtj8uO8+/cvdl8OzC7+B2Y3+bK0ITtwKhmFhkuVmSM2ybg0uigEj6jwnJpf062fzXrWtLH2NEZKxtolpR8prYGMBMoymdzBgxwdqs3z7p//2FdFZNfvE2yJVjQacsMjlc4soZeQ0cQtQ9+sk5PxZDwdDc5/Z6O308n4dMqGx+Pw4uxkcDGuwHakEpURGqrwaMpThDrR7m5v2b2p786Jap4SpdtlEGqwO/7TZHxgTCZmK4PagadlwJfCYOpUoZqqWFwJzOAJLxSr9lLDXngxOD8fjy7D48Ho9P3lIAzp92Z6+cVdDZ5SPdIVMynRdAUez/MyI7PbFagtH2rMDlj/qxUJP+fBjEdxHBzETc87aEd8dsC7zfhg5sVt3gqiiPtBFXaMSGkjPF3CbuewGRz6LdY+avfZ2W8AW/C4DJqezxKwtSSRBAAA");    
         }
     }
 }
