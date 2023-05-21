@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using TextCopy;
 using System.Text.Json;
 using System.Net.Http;
 using Newtonsoft.Json;
@@ -25,7 +26,7 @@ namespace App
         public readonly string hypixelBaseURL = "https://api.hypixel.net/skyblock/auctions?key=";
         public readonly string coflnetBaseURL = "https://sky.coflnet.com/api/";
         public List<CoflnetItem> itemTagList = new List<CoflnetItem>();
-        public ApiResponse responseList;
+        public ApiResponse lastResponse;
 
         public Sniper(bool binOnly = true)
         {
@@ -119,6 +120,14 @@ namespace App
             itemTagList = items;
         }
 
+        public async Task<long> GetItemAverageMin (string itemName)
+        {
+            string jsonResponse = await ApiGetResponse(coflnetBaseURL + $"item/price/{itemName}/history/day");
+            List<CoflnetPrice> items = JsonConvert.DeserializeObject<List<CoflnetPrice>>(jsonResponse);
+            List<long> minPrices = items.Select(item => item.min).ToList();
+            return (long)minPrices.Average();
+        }
+
         /// <summary>
         /// Gets a single page from Hypixel API.
         /// </summary>
@@ -128,22 +137,25 @@ namespace App
         {
             string jsonResponse = await ApiGetResponse(hypixelBaseURL + Key + "&page=" + pageNumber);
             ApiResponse result = JsonConvert.DeserializeObject<ApiResponse>(jsonResponse);
-            responseList = result;
-            if (currentUpdateTime == 0)
-            {
-                currentUpdateTime = result.lastUpdated;
-            }
-            else if (currentUpdateTime != 0 && prevUpdateTime != 0 && currentUpdateTime != prevUpdateTime)
+            lastResponse = result;
+
+            if (result.lastUpdated != currentUpdateTime)
             {
                 prevUpdateTime = currentUpdateTime;
                 currentUpdateTime = result.lastUpdated;
+            }
+
+            if (prevUpdateTime == currentUpdateTime)
+            {
+                prevUpdateTime = 0;
             }
 
             if (binOnly)
             {
                 result.auctions.RemoveAll(obj => obj.bin != true);
             }
-            return result.auctions;
+            Auctions final = result.ToAuctions();
+            return final;
         }
 
         /// <summary>
@@ -154,12 +166,12 @@ namespace App
         {
             Auctions finalResponse = await GetAuctionPage(0);
 
-            for (int i = 1; i < responseList.totalPages; i++)
+            for (int i = 1; i < lastResponse.totalPages; i++)
             //for (int i = 1; i < 5; i++)
             {
                 Console.WriteLine("Getting page " + i);
                 Auctions newPage = await GetAuctionPage(i);
-                finalResponse.AddRange(newPage);
+                finalResponse.Get().AddRange(newPage.Get());
             }
 
             return finalResponse;
@@ -177,19 +189,14 @@ namespace App
             Auctions NewAuctions = new Auctions();
 
             Auctions data;
+            long delta;
 
-            if (prevUpdateTime == 0)
-            {
-                //Create new timestamp
-                data = await GetAuctionPage(page);
-            }
+            // Wait for next update
+            delta = (65000 - (UnixTime() - currentUpdateTime)) < 1000 ? 1000 : 65000 - (UnixTime() - currentUpdateTime);
 
-            if (UnixTime() >= prevUpdateTime)
-            {
-                long delta = (70000 - (UnixTime() - prevUpdateTime)) < 1000 ? 1000 : 70000 - (UnixTime() - prevUpdateTime);
-                Console.WriteLine("Waiting for update for " + (delta / 1000) + " seconds");
-                await Task.Delay((int)delta);
-            }
+
+            Console.WriteLine("Waiting for update for " + (delta / 1000) + " seconds");
+            await Task.Delay((int)delta);
 
             if (furtherProcessing == null)
             {
@@ -199,17 +206,17 @@ namespace App
             {
                 data = furtherProcessing;
                 Auctions newdata = await GetAuctionPage(page + 1);
-                data.AddRange(newdata);
+                data.Get().AddRange(newdata.Get());
             }
 
-            foreach (Auction auc in data)
+            foreach (Auction auc in data.Get())
             {
                 if (auc.start > prevUpdateTime)
                 {
-                    NewAuctions.Add(auc);
+                    NewAuctions.Get().Add(auc);
                 }
             }
-            Console.WriteLine("New auctions: " + NewAuctions.Count);
+            Console.WriteLine("New auctions: " + NewAuctions.Get().Count);
             data = NewAuctions;
 
             return data;
@@ -224,19 +231,78 @@ namespace App
             Sniper sniper = new Sniper();
             Auctions allAuctions = await sniper.GetAllAuctions();
             allAuctions.RefactorItems(sniper.itemTagList);
-            Auctions newAuctions = await sniper.GetNewAuctions();
-            newAuctions.RefactorItems(sniper.itemTagList);
-            allAuctions.AddRange(newAuctions);
+            JsonSerializerOptions json = new JsonSerializerOptions() { WriteIndented = true};
 
-            var distinctNames = newAuctions.Select(auction => auction.item_name).Distinct().ToList();
+            while (true)
+            {
+                Auctions newAuctions = await sniper.GetNewAuctions();
+                newAuctions.RefactorItems(sniper.itemTagList);
+                allAuctions.Get().AddRange(newAuctions.Get());
+
+                var distinctNames = newAuctions.Get().Select(auction => auction.item_name).Distinct().ToList();
+                distinctNames = distinctNames.Where(auction => !auction.Contains("[Lvl")).ToList();
+
+                double minProfit = 10;
+                double minMargin = 500000;
+
+                foreach (var distinctName in distinctNames)
+                {
+                    List<Auction> itemSet = allAuctions.Get().Where(auction => auction.item_name.Contains(distinctName)).ToList();
+                    //Auctions itemSet = (Auctions)itemSett;
+                    itemSet.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
+                    List<Auction> itemSetSorted = itemSet;
+
+                    if (itemSetSorted.Count < 3)
+                    {
+                        continue;
+                    }
+
+                    if (itemSetSorted[0].category == "misc")
+                    {
+                        continue;
+                    }
+
+                    //Auction next = itemSetSorted.Skip(1).FirstOrDefault(item => item.starting_bid != itemSetSorted[0].starting_bid);
+                    Auction next = itemSetSorted.Skip(1).Where(item => item != itemSetSorted[0]).FirstOrDefault();
+                    long lowest = itemSetSorted[0].starting_bid;
+                    long nextLowest = next.starting_bid;
+
+                    if (lowest >= nextLowest)
+                    {
+                        continue;
+                    }
+
+                    var toJson = new
+                    {
+                        item = next.item_name,
+                        data = itemSetSorted.Select(auction => (auction.starting_bid, auction.uuid)).ToList()
+                    };
+
+                    double profitPercent = (((double)nextLowest - (double)lowest) / (double)lowest) * 100;
+                    long profit = nextLowest - lowest;
+                    if (profitPercent > minProfit && profit > minMargin && profitPercent < 100)
+                    {
+                        long dayAverage = await sniper.GetItemAverageMin(itemSetSorted[0].item_name);
+                        Console.WriteLine($"{next.item_name}: profit - {profit}({profitPercent.ToString("#.##")}%) {itemSetSorted[0].uuid}\n" +
+                            $"Compared to {next.uuid}. Item day average: {dayAverage}");
+                        ClipboardService.SetText($"/viewauction {itemSetSorted[0].uuid}");
+                        File.WriteAllText($"data/{next.item_name}.json", JsonConvert.SerializeObject(toJson));
+                    }
+
+                }
+
+            }
+            /*
+            var distinctNames = newAuctions.Get().Select(auction => auction.item_name).Distinct().ToList();
             distinctNames = distinctNames.Where(auction => !auction.Contains("[Lvl")).ToList();
             foreach (var distinctName in distinctNames)
             {
-                List<Auction> itemSet = allAuctions.Where(auction => auction.item_name.Contains(distinctName)).ToList();
+                List<Auction> itemSet = allAuctions.Get().Where(auction => auction.item_name.Contains(distinctName)).ToList();
+                //Auctions itemSet = (Auctions)itemSett;
                 itemSet.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
                 List<Auction> itemSetSorted = itemSet;
 
-                
+
                 if (itemSetSorted.Count > 1)
                 {
                     //Auction next = itemSetSorted.Skip(1).FirstOrDefault(item => item.starting_bid != itemSetSorted[0].starting_bid);
@@ -251,6 +317,7 @@ namespace App
                     }
                 }
             }
+            */
 
         }
     }

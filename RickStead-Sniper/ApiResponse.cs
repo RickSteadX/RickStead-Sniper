@@ -19,22 +19,32 @@ namespace App
         public int totalPages { get; set; }
         public int totalAuctions { get; set; }
         public long lastUpdated { get; set; }
-        public Auctions auctions { get; set; }
+        public List<Auction> auctions { get; set; }
 
         public Auctions ToAuctions()
         {
-            Auctions result = (Auctions)this.auctions;
-            return result;
+            Auctions instance = new Auctions();
+            instance.auctions = this.auctions;
+            return instance;
         }
     } 
 
-    public class Auctions: List<Auction>
+    public class Auctions
     {
+        public List<Auction> auctions = new List<Auction>();
+
+        public List<Auction> Get()
+        {
+            return this.auctions;
+        }
+
         public void RefactorItems(List<CoflnetItem> tagList)
         {
+            auctions.RemoveAll(obj => obj.item_name.Contains("✪") && obj.item_name.Contains("✪✪✪✪✪"));
+
             Parallel.ForEach(tagList, item =>
             {
-                foreach (Auction auction in this)
+                foreach (Auction auction in this.auctions)
                 {
                     if (auction.item_name.Contains(item.name))
                     {
@@ -47,7 +57,7 @@ namespace App
         public List<Item> ConvertToItems()
         {
             List<Item> items = new List<Item>();
-            foreach (Auction auction in this)
+            foreach (Auction auction in this.auctions)
             {
                 items.Add(auction.ConvertToItem());
             }
@@ -56,7 +66,7 @@ namespace App
 
         public void SortByStartingBid()
         {
-            this.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
+            auctions.Sort((a, b) => a.starting_bid.CompareTo(b.starting_bid));
         }
     }
 
@@ -119,6 +129,25 @@ namespace App
         public string name { get; set; }
         public string tag { get; set; }
         public string flags { get; set; }
+    }
+
+    public class CoflnetPrice
+    {
+        public long min;
+        public long max;
+        public long avg;
+        public long unixTime;
+        public int volume;
+        public string time;
+
+        public long timeToUnix()
+        {
+            DateTime dateTime = DateTime.Parse(time);
+            DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            long unixTime = (long)(dateTime.ToUniversalTime() - unixEpoch).TotalSeconds;
+            return unixTime;
+        }
     }
 
     public class Item
