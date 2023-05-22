@@ -81,6 +81,29 @@ namespace App
             }
         }
 
+        public async Task<List<AuctionItem>> GetSoldItemsByTag(string tag, int amount = 30)
+        {
+            List<CoflnetAuction> coflnetAuctions = new();
+
+            for (int i = 0; i <= amount; i++)
+            {
+                string jsonResponse = await ApiGetResponse(coflnetBaseURL + $"auctions/tag/{tag}/sold?page={i}&pageSize={amount}");
+                List<CoflnetAuction> result = JsonConvert.DeserializeObject<List<CoflnetAuction>>(jsonResponse);
+
+                // Remove non-bins
+                result.RemoveAll(obj => obj.bin != true);
+                coflnetAuctions.AddRange(result);
+
+                // Page is limited to 1000 results per page.
+                amount -= 1000;
+                if (amount < 0)
+                {
+                    break;
+                }
+            }
+            List<AuctionItem> auctionItems = coflnetAuctions.Select(obj => obj.ToAuctionItem()).ToList();
+            return auctionItems;
+        }
 
         public async Task<List<Auction>> GetAuctionPage(int pageNumber)
         {
@@ -110,48 +133,6 @@ namespace App
             return finalResponse;
         }
 
-        /*
-        public async Task<Auctions> GetNewAuctions(int page = 0, Auctions? furtherProcessing = null)
-        {
-
-            Auctions NewAuctions = new Auctions();
-
-            Auctions data;
-            long delta;
-
-            // Wait for next update
-            delta = (65000 - (UnixTime() - currentUpdateTime)) < 1000 ? 100 : 65000 - (UnixTime() - currentUpdateTime);
-
-
-            Console.WriteLine("Waiting for update for " + (delta / 1000) + " seconds");
-            await Task.Delay((int)delta);
-
-            if (furtherProcessing == null)
-            {
-                data = await GetAuctionPage(page);
-            }
-            else
-            {
-                data = furtherProcessing;
-                Auctions newdata = await GetAuctionPage(page + 1);
-                data.Get().AddRange(newdata.Get());
-            }
-
-            foreach (Auction auc in data.Get())
-            {
-                if (auc.start > prevUpdateTime)
-                {
-                    NewAuctions.Get().Add(auc);
-                }
-            }
-            Console.WriteLine("New auctions: " + NewAuctions.Get().Count);
-            data = NewAuctions;
-
-            return data;
-        }
-
-        */
-
     }
 
     class Program
@@ -159,11 +140,15 @@ namespace App
         static async Task Main()
         {
             Sniper sniper = new();
-            //List<Auction> auctions = await sniper.GetAuctionPage(0);
-            //List<Auction> auctionSlice = auctions.GetRange(0, 100);
-            //Console.WriteLine(auctionSlice.Count);
-            Functional a = new();
-            a.DecodeNBT("H4sIAAAAAAAAAF1T3W7bNhj9FDet4xXI7othRNaiMdwosvwn586zXadA5gRR2mIoioCWvthEJdIQ6WW53DvsYggwYHd+Dz9KHmToR0lJfwTL4s85h4eHH2sAO+CIGgA4W7AlYqfhwPZQraRxalAxfO7AD2/lLEP+ic8SdCqwcyxifJ3wuSbS/zV4Egu9TPjNDjw6URlWafQZ/LxZ9ybIMxZGNHbENuu41wnoE+w3ux2vDvsECE2Gcm4WdjpqdDr06e83/E49xzWafttt1aFByGEmDBsuuIywADf9FwWaGg/wF3U4vAePeMrnJbjdK8H+F7DXdW0PXhLhGHlSuOCNVssvsL0S2et4bssvDI/wCqXGAtls9b5Ftry+2yXkM7u1JWJc4IJyxcD1gmI3b6TBJBFzLLfDG75XGvRKrXbHJaVd2/lA793t3/T/kaKlYPuTTF2bBXtHzVeWd5Ypg5ERSrJ3BNnbrLuvV0nCQjTsVyVX+oiFCx6razbQmmstJPxkc1JJQjRmFsh0Pq+ZurJd+IWmUWIqULMbtWKfBMkJGVEZEHtux7JcI85jZlcqy2Uy1OZeY89Or+Qcydb1QiTIrqkgLNsshGYajZtj8uO8+/cvdl8OzC7+B2Y3+bK0ITtwKhmFhkuVmSM2ybg0uigEj6jwnJpf062fzXrWtLH2NEZKxtolpR8prYGMBMoymdzBgxwdqs3z7p//2FdFZNfvE2yJVjQacsMjlc4soZeQ0cQtQ9+sk5PxZDwdDc5/Z6O308n4dMqGx+Pw4uxkcDGuwHakEpURGqrwaMpThDrR7m5v2b2p786Jap4SpdtlEGqwO/7TZHxgTCZmK4PagadlwJfCYOpUoZqqWFwJzOAJLxSr9lLDXngxOD8fjy7D48Ho9P3lIAzp92Z6+cVdDZ5SPdIVMynRdAUez/MyI7PbFagtH2rMDlj/qxUJP+fBjEdxHBzETc87aEd8dsC7zfhg5sVt3gqiiPtBFXaMSGkjPF3CbuewGRz6LdY+avfZ2W8AW/C4DJqezxKwtSSRBAAA");    
+            List<AuctionItem> auctionItems = await sniper.GetSoldItemsByTag("WISE_DRAGON_LEGGINGS");
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            foreach (AuctionItemEnchantable auctionItem in auctionItems)
+            {
+                Console.WriteLine(String.Format(
+                    "{0}\n" +
+                    "\tReforge: {1}\n" +
+                    "\tPrice:  {2}\n", auctionItem.item_name, auctionItem.reforge, auctionItem.price));
+            }
         }
     }
 }
