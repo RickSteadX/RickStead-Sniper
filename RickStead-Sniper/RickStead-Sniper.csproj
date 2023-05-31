@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="fNbt" Version="0.6.4" />
+    <PackageReference Include="fNBT.Serialization" Version="0.6.3" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="TextCopy" Version="6.2.1" />
   </ItemGroup>
